@@ -107,14 +107,7 @@ app.post('/api/info', async (req, res) => {
             let title = "Media";
             let thumbnail = "https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=800&q=80";
             
-            if (url.includes('youtube.com') || url.includes('youtu.be')) {
-              try {
-                const oembedRes = await fetch(`https://noembed.com/embed?url=${encodeURIComponent(url)}`);
-                const oembedData = await oembedRes.json();
-                if (oembedData.title) title = oembedData.title;
-                if (oembedData.thumbnail_url) thumbnail = oembedData.thumbnail_url;
-              } catch (e) { /* ignore */ }
-            } else if (url.includes('instagram.com')) {
+            if (url.includes('instagram.com')) {
               title = "Instagram Media";
             } else if (url.includes('tiktok.com')) {
               title = "TikTok Video";
@@ -214,19 +207,7 @@ app.post('/api/info', async (req, res) => {
           }
         }
 
-        let errorMessage = 'Failed to extract media info. Ensure the URL is valid and supported.';
-        if (stderr.includes('Unsupported URL')) {
-          errorMessage = 'The provided URL is not supported by the extractor.';
-        } else if (stderr.includes('Video unavailable')) {
-          errorMessage = 'The video is unavailable, private, or deleted.';
-        } else if (stderr.includes('Private video')) {
-          errorMessage = 'This video is private and requires authentication.';
-        }
-        
-        return res.status(400).json({ error: errorMessage, details: stderr.substring(0, 200) });
-      }
-
-      try {
+        try {
         let jsonStr = stdout;
         // Robust JSON extraction to ignore yt-dlp warnings/logs printed to stdout
         const jsonStart = jsonStr.indexOf('{');
