@@ -104,7 +104,7 @@ app.post('/api/info', async (req, res) => {
         if (isKnownPlatform || isBotError) {
           console.log('Extraction failed or bot detection triggered. Falling back to Cobalt API...');
           try {
-            let title = "Media (Bypass Mode)";
+            let title = "Media";
             let thumbnail = "https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=800&q=80";
             
             if (url.includes('youtube.com') || url.includes('youtu.be')) {
@@ -115,7 +115,7 @@ app.post('/api/info', async (req, res) => {
                 if (oembedData.thumbnail_url) thumbnail = oembedData.thumbnail_url;
               } catch (e) { /* ignore */ }
             } else if (url.includes('instagram.com')) {
-              title = "Instagram Reel/Post";
+              title = "Instagram Media";
               thumbnail = "https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=800&q=80";
             } else if (url.includes('tiktok.com')) {
               title = "TikTok Video";
@@ -129,9 +129,61 @@ app.post('/api/info', async (req, res) => {
               duration: 0,
               formats: [
                 {
-                  format_id: "cobalt_video",
+                  format_id: "cobalt_video_max",
                   ext: "mp4",
                   resolution: "Best Quality (Auto)",
+                  filesize: 0,
+                  vcodec: "h264",
+                  acodec: "aac",
+                  video_only: false,
+                  audio_only: false,
+                  combined: true,
+                  format_note: "Bypassed via external API",
+                  fps: null
+                },
+                {
+                  format_id: "cobalt_video_1080",
+                  ext: "mp4",
+                  resolution: "1080p",
+                  filesize: 0,
+                  vcodec: "h264",
+                  acodec: "aac",
+                  video_only: false,
+                  audio_only: false,
+                  combined: true,
+                  format_note: "Bypassed via external API",
+                  fps: null
+                },
+                {
+                  format_id: "cobalt_video_720",
+                  ext: "mp4",
+                  resolution: "720p",
+                  filesize: 0,
+                  vcodec: "h264",
+                  acodec: "aac",
+                  video_only: false,
+                  audio_only: false,
+                  combined: true,
+                  format_note: "Bypassed via external API",
+                  fps: null
+                },
+                {
+                  format_id: "cobalt_video_480",
+                  ext: "mp4",
+                  resolution: "480p",
+                  filesize: 0,
+                  vcodec: "h264",
+                  acodec: "aac",
+                  video_only: false,
+                  audio_only: false,
+                  combined: true,
+                  format_note: "Bypassed via external API",
+                  fps: null
+                },
+                {
+                  format_id: "cobalt_video_360",
+                  ext: "mp4",
+                  resolution: "360p",
                   filesize: 0,
                   vcodec: "h264",
                   acodec: "aac",
@@ -248,11 +300,16 @@ app.post('/api/download', async (req, res) => {
       const ext = isAudio ? 'mp3' : 'mp4';
       const filename = `${downloadId}.${ext}`;
       const outputTemplate = path.join(downloadsDir, filename);
+      
+      let vQuality = "max";
+      if (format_id.startsWith('cobalt_video_')) {
+        vQuality = format_id.replace('cobalt_video_', '');
+      }
 
       activeDownloads.set(downloadId, { progress: 10, status: 'Bypassing Bot Detection...' });
 
       try {
-        const cobaltRes = await fetch('https://api.cobalt.tools/', {
+        const cobaltRes = await fetch('https://api.cobalt.tools/api/json', {
           method: 'POST',
           headers: {
             'Accept': 'application/json',
@@ -261,11 +318,19 @@ app.post('/api/download', async (req, res) => {
           },
           body: JSON.stringify({
             url: url,
-            isAudioOnly: isAudio
+            isAudioOnly: isAudio,
+            vQuality: vQuality
           })
         });
 
-        if (!cobaltRes.ok) throw new Error(`Bypass API failed with status ${cobaltRes.status}`);
+        if (!cobaltRes.ok) {
+          let errorText = `Bypass API failed with status ${cobaltRes.status}`;
+          try {
+            const errorData = await cobaltRes.json();
+            if (errorData.text) errorText = errorData.text;
+          } catch (e) { /* ignore */ }
+          throw new Error(errorText);
+        }
         
         const cobaltData = await cobaltRes.json();
         if (cobaltData.status === 'error') throw new Error(cobaltData.text || 'Unknown bypass error');
