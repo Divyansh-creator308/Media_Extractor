@@ -210,9 +210,22 @@ export default function App() {
         </div>
 
         {error && (
-          <div className="mb-8 p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl flex items-start gap-3">
-            <AlertCircle className="shrink-0 mt-0.5" size={20} />
-            <p>{error}</p>
+          <div className="mb-8 p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl flex flex-col items-start gap-3">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="shrink-0 mt-0.5" size={20} />
+              <p className="font-medium">{error}</p>
+            </div>
+            {error.includes('IP ban/Bot detection') && (
+              <div className="text-sm mt-2 ml-8 bg-white/50 p-3 rounded-lg border border-red-100">
+                <p className="font-semibold mb-1">Why is this happening?</p>
+                <p>YouTube aggressively blocks datacenter IP addresses (like Render, AWS, etc.) to prevent bots. This is a known issue with cloud hosting.</p>
+                <p className="font-semibold mt-2 mb-1">How to fix:</p>
+                <ul className="list-disc pl-4 space-y-1">
+                  <li>Try downloading from Instagram, TikTok, or X (Twitter) instead.</li>
+                  <li>Run this app locally on your computer (your home IP is trusted).</li>
+                </ul>
+              </div>
+            )}
           </div>
         )}
 
