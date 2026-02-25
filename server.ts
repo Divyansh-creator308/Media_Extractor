@@ -64,7 +64,17 @@ app.post('/api/info', async (req, res) => {
       hasResponded = true;
       if (code !== 0) {
         console.error('yt-dlp error:', stderr);
-        return res.status(400).json({ error: 'Failed to extract media info. Ensure the URL is valid and supported.' });
+        
+        let errorMessage = 'Failed to extract media info. Ensure the URL is valid and supported.';
+        if (stderr.includes('Sign in to confirm') || stderr.includes('HTTP Error 403') || stderr.includes('bot')) {
+          errorMessage = 'The media provider blocked the request (IP ban/Bot detection). Try a different platform.';
+        } else if (stderr.includes('Unsupported URL')) {
+          errorMessage = 'The provided URL is not supported by the extractor.';
+        } else if (stderr.includes('Video unavailable')) {
+          errorMessage = 'The video is unavailable, private, or deleted.';
+        }
+        
+        return res.status(400).json({ error: errorMessage });
       }
 
       try {
