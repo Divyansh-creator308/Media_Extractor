@@ -98,10 +98,10 @@ app.post('/api/info', async (req, res) => {
       if (code !== 0) {
         console.error('yt-dlp error:', stderr);
         
-        const isKnownPlatform = url.includes('youtube.com') || url.includes('youtu.be') || url.includes('instagram.com') || url.includes('tiktok.com') || url.includes('twitter.com') || url.includes('x.com');
+        const isKnownPlatform = url.includes('youtube.com') || url.includes('youtu.be') || url.includes('instagram.com') || url.includes('tiktok.com') || url.includes('twitter.com') || url.includes('x.com') || url.includes('snapchat.com');
         const isBotError = stderr.includes('Sign in to confirm') || stderr.includes('HTTP Error 403') || stderr.includes('bot') || stderr.includes('Login required') || stderr.toLowerCase().includes('redirecting to login') || stderr.includes('HTTP Error 401');
 
-        if (isKnownPlatform || isBotError) {
+        if (isKnownPlatform || isBotError || code !== 0) {
           console.log('Extraction failed or bot detection triggered. Falling back to Cobalt API...');
           try {
             let title = "Media";
@@ -116,11 +116,12 @@ app.post('/api/info', async (req, res) => {
               } catch (e) { /* ignore */ }
             } else if (url.includes('instagram.com')) {
               title = "Instagram Media";
-              thumbnail = "https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=800&q=80";
             } else if (url.includes('tiktok.com')) {
               title = "TikTok Video";
             } else if (url.includes('x.com') || url.includes('twitter.com')) {
               title = "X (Twitter) Video";
+            } else if (url.includes('snapchat.com')) {
+              title = "Snapchat Media";
             }
 
             return res.json({
@@ -308,80 +309,111 @@ app.post('/api/download', async (req, res) => {
 
       activeDownloads.set(downloadId, { progress: 10, status: 'Bypassing Bot Detection...' });
 
-      try {
-        const cobaltRes = await fetch('https://api.kektube.com/', {
-          method: 'POST',
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-          },
-          body: JSON.stringify({
-            url: url,
-            downloadMode: isAudio ? 'audio' : 'auto',
-            videoQuality: vQuality === 'max' ? 'max' : vQuality
-          })
-        });
+      // List of Cobalt instances to try in order
+      const cobaltInstances = [
+        'https://api.kektube.com',
+        'https://api.dl.woof.monster',
+        'https://api.cobalt.liubquanti.click',
+        'https://cobalt.cwinfo.net'
+      ];
 
-        if (!cobaltRes.ok) {
-          let errorText = `Bypass API failed with status ${cobaltRes.status}`;
-          try {
-            const errorData = await cobaltRes.json();
-            if (errorData.text) errorText = errorData.text;
-          } catch (e) { /* ignore */ }
-          throw new Error(errorText);
-        }
-        
-        const cobaltData = await cobaltRes.json();
-        if (cobaltData.status === 'error') throw new Error(cobaltData.text || 'Unknown bypass error');
-        
-        let downloadUrl = cobaltData.url;
-        if (cobaltData.status === 'picker' && cobaltData.picker && cobaltData.picker.length > 0) {
-          downloadUrl = cobaltData.picker[0].url;
-        }
+      let cobaltData = null;
+      let lastError = '';
 
-        if (!downloadUrl) throw new Error('No download URL returned from bypass server');
-        
-        activeDownloads.set(downloadId, { progress: 30, status: 'Downloading from Bypass Server...' });
-
-        const fileRes = await fetch(downloadUrl);
-        if (!fileRes.ok) throw new Error('Failed to fetch media from bypass server');
-        
-        const totalSize = parseInt(fileRes.headers.get('content-length') || '0', 10);
-        let downloadedSize = 0;
-        
-        const dest = fs.createWriteStream(outputTemplate);
-        
-        if (fileRes.body) {
-          // @ts-ignore
-          const reader = fileRes.body.getReader();
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            
-            downloadedSize += value.length;
-            if (totalSize > 0) {
-              const percent = 30 + ((downloadedSize / totalSize) * 69);
-              activeDownloads.set(downloadId, { progress: percent, status: 'Downloading' });
-            }
-            dest.write(value);
-          }
-          dest.end();
-          
-          activeDownloads.set(downloadId, { 
-            progress: 100, 
-            status: 'Completed', 
-            filename: filename 
+      // Try instances sequentially
+      for (const instance of cobaltInstances) {
+        try {
+          console.log(`Trying Cobalt instance: ${instance}`);
+          const cobaltRes = await fetch(`${instance}/`, {
+            method: 'POST',
+            headers: {
+              'Accept': 'application/json',
+              'Content-Type': 'application/json',
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            },
+            body: JSON.stringify({
+              url: url,
+              downloadMode: isAudio ? 'audio' : 'auto',
+              videoQuality: vQuality === 'max' ? 'max' : vQuality
+            })
           });
-        } else {
-          throw new Error('No response body from bypass server');
+
+          if (cobaltRes.ok) {
+            const data = await cobaltRes.json();
+            if (data.status !== 'error') {
+              cobaltData = data;
+              console.log(`Success with instance: ${instance}`);
+              break; // Success!
+            } else {
+              lastError = data.text || 'API returned error status';
+            }
+          } else {
+            lastError = `HTTP ${cobaltRes.status}`;
+          }
+        } catch (e: any) {
+          console.error(`Failed to fetch from ${instance}:`, e.message);
+          lastError = e.message;
         }
-      } catch (err: any) {
-        console.error('Cobalt fallback error:', err);
-        activeDownloads.set(downloadId, { progress: 0, status: 'Error', error: err.message || 'Bypass server failed to process this video.' });
       }
-      return;
+
+      if (!cobaltData) {
+        activeDownloads.set(downloadId, { progress: 0, status: 'Error', error: `All bypass attempts failed. Last error: ${lastError}` });
+        return;
+      }
+      
+      let downloadUrl = cobaltData.url;
+      if (cobaltData.status === 'picker' && cobaltData.picker && cobaltData.picker.length > 0) {
+        downloadUrl = cobaltData.picker[0].url;
+      }
+
+      if (!downloadUrl) {
+         activeDownloads.set(downloadId, { progress: 0, status: 'Error', error: 'No download URL returned by bypass API.' });
+         return;
+      }
+
+      activeDownloads.set(downloadId, { progress: 30, status: 'Downloading from fallback...' });
+
+      const fileRes = await fetch(downloadUrl);
+      if (!fileRes.ok) {
+        activeDownloads.set(downloadId, { progress: 0, status: 'Error', error: 'Failed to fetch media from bypass server' });
+        return;
+      }
+      
+      const totalSize = parseInt(fileRes.headers.get('content-length') || '0', 10);
+      let downloadedSize = 0;
+      
+      const dest = fs.createWriteStream(outputTemplate);
+      
+      if (fileRes.body) {
+        // @ts-ignore
+        const reader = fileRes.body.getReader();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          downloadedSize += value.length;
+          if (totalSize > 0) {
+            const percent = 30 + ((downloadedSize / totalSize) * 69);
+            activeDownloads.set(downloadId, { progress: percent, status: 'Downloading' });
+          }
+          dest.write(value);
+        }
+        dest.end();
+        
+        activeDownloads.set(downloadId, { 
+          progress: 100, 
+          status: 'Completed', 
+          filename: filename 
+        });
+      } else {
+        activeDownloads.set(downloadId, { progress: 0, status: 'Error', error: 'No response body from bypass server' });
+      }
+    } catch (err: any) {
+      console.error('Cobalt fallback error:', err);
+      activeDownloads.set(downloadId, { progress: 0, status: 'Error', error: err.message || 'Bypass server failed to process this video.' });
     }
+    return;
+  }
 
     // Start normal yt-dlp download process in background
     const outputTemplate = path.join(downloadsDir, `${downloadId}_%(ext)s`);
