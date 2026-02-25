@@ -373,13 +373,14 @@ app.post('/api/download', async (req, res) => {
 
       activeDownloads.set(downloadId, { progress: 30, status: 'Downloading from fallback...' });
 
-      const fileRes = await fetch(downloadUrl);
-      if (!fileRes.ok) {
-        activeDownloads.set(downloadId, { progress: 0, status: 'Error', error: 'Failed to fetch media from bypass server' });
-        return;
-      }
-      
-      const totalSize = parseInt(fileRes.headers.get('content-length') || '0', 10);
+      try {
+        const fileRes = await fetch(downloadUrl);
+        if (!fileRes.ok) {
+          activeDownloads.set(downloadId, { progress: 0, status: 'Error', error: 'Failed to fetch media from bypass server' });
+          return;
+        }
+        
+        const totalSize = parseInt(fileRes.headers.get('content-length') || '0', 10);
       let downloadedSize = 0;
       
       const dest = fs.createWriteStream(outputTemplate);
