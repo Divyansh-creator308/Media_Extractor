@@ -3,12 +3,29 @@ import cors from 'cors';
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
 import { createServer as createViteServer } from 'vite';
 
 // Ensure local binaries (yt-dlp, ffmpeg) downloaded during Render build are in PATH
 process.env.PATH = `${process.cwd()}:${process.env.PATH}`;
+
+// Initialize cookie file if env var exists, otherwise check for local file
+let COOKIE_FILE_PATH = path.join(os.tmpdir(), 'youtube_cookies.txt');
+if (process.env.YOUTUBE_COOKIES) {
+  try {
+    fs.writeFileSync(COOKIE_FILE_PATH, process.env.YOUTUBE_COOKIES, 'utf8');
+    console.log('YouTube cookies loaded from environment variable.');
+  } catch (err) {
+    console.error('Failed to write YouTube cookies file:', err);
+  }
+} else if (fs.existsSync(path.join(process.cwd(), 'cookies.txt'))) {
+  COOKIE_FILE_PATH = path.join(process.cwd(), 'cookies.txt');
+  console.log('YouTube cookies loaded from local cookies.txt file.');
+} else {
+  COOKIE_FILE_PATH = ''; // No cookies available
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -35,16 +52,23 @@ app.post('/api/info', async (req, res) => {
   try {
     const { url } = urlSchema.parse(req.body);
 
-    const ytDlp = spawn('yt-dlp', [
+    const ytDlpArgs = [
       '-J',
       '--no-colors',
       '--js-runtimes', 'node',
       '--extractor-args', 'youtube:player_client=ios,android,web',
       '--force-ipv4',
       '--geo-bypass',
-      '--no-warnings',
-      url
-    ]);
+      '--no-warnings'
+    ];
+    
+    if (COOKIE_FILE_PATH && fs.existsSync(COOKIE_FILE_PATH)) {
+      ytDlpArgs.push('--cookies', COOKIE_FILE_PATH);
+    }
+    
+    ytDlpArgs.push(url);
+
+    const ytDlp = spawn('yt-dlp', ytDlpArgs);
 
     let hasResponded = false;
 
@@ -74,10 +98,13 @@ app.post('/api/info', async (req, res) => {
       if (code !== 0) {
         console.error('yt-dlp error:', stderr);
         
-        if (stderr.includes('Sign in to confirm') || stderr.includes('HTTP Error 403') || stderr.includes('bot') || stderr.includes('Login required')) {
-          console.log('Bot detection triggered. Falling back to Cobalt API...');
+        const isKnownPlatform = url.includes('youtube.com') || url.includes('youtu.be') || url.includes('instagram.com') || url.includes('tiktok.com') || url.includes('twitter.com') || url.includes('x.com');
+        const isBotError = stderr.includes('Sign in to confirm') || stderr.includes('HTTP Error 403') || stderr.includes('bot') || stderr.includes('Login required') || stderr.toLowerCase().includes('redirecting to login') || stderr.includes('HTTP Error 401');
+
+        if (isKnownPlatform || isBotError) {
+          console.log('Extraction failed or bot detection triggered. Falling back to Cobalt API...');
           try {
-            let title = "Media (Bot Bypass Mode)";
+            let title = "Media (Bypass Mode)";
             let thumbnail = "https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=800&q=80";
             
             if (url.includes('youtube.com') || url.includes('youtu.be')) {
@@ -87,6 +114,13 @@ app.post('/api/info', async (req, res) => {
                 if (oembedData.title) title = oembedData.title;
                 if (oembedData.thumbnail_url) thumbnail = oembedData.thumbnail_url;
               } catch (e) { /* ignore */ }
+            } else if (url.includes('instagram.com')) {
+              title = "Instagram Reel/Post";
+              thumbnail = "https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=800&q=80";
+            } else if (url.includes('tiktok.com')) {
+              title = "TikTok Video";
+            } else if (url.includes('x.com') || url.includes('twitter.com')) {
+              title = "X (Twitter) Video";
             }
 
             return res.json({
@@ -123,7 +157,7 @@ app.post('/api/info', async (req, res) => {
               ]
             });
           } catch (e) {
-            return res.status(400).json({ error: 'Bot detection blocked the request, and fallback API failed.' });
+            return res.status(400).json({ error: 'Extraction failed, and fallback API failed.' });
           }
         }
 
@@ -292,7 +326,7 @@ app.post('/api/download', async (req, res) => {
       formatArg = `${format_id}+bestaudio/best`;
     }
 
-    const ytDlp = spawn('yt-dlp', [
+    const ytDlpArgs = [
       '-f', formatArg,
       '-o', outputTemplate,
       '--newline',
@@ -300,9 +334,16 @@ app.post('/api/download', async (req, res) => {
       '--js-runtimes', 'node',
       '--extractor-args', 'youtube:player_client=ios,android,web',
       '--force-ipv4',
-      '--geo-bypass',
-      url
-    ]);
+      '--geo-bypass'
+    ];
+
+    if (COOKIE_FILE_PATH && fs.existsSync(COOKIE_FILE_PATH)) {
+      ytDlpArgs.push('--cookies', COOKIE_FILE_PATH);
+    }
+
+    ytDlpArgs.push(url);
+
+    const ytDlp = spawn('yt-dlp', ytDlpArgs);
 
     ytDlp.on('error', (err: any) => {
       if (err.code === 'ENOENT') {
