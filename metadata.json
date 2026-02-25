@@ -1,0 +1,5 @@
+{
+  "name": "Media Extractor",
+  "description": "Extract and download media formats from supported URLs with real-time progress tracking.",
+  "requestFramePermissions": []
+}
