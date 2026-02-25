@@ -74,10 +74,61 @@ app.post('/api/info', async (req, res) => {
       if (code !== 0) {
         console.error('yt-dlp error:', stderr);
         
-        let errorMessage = 'Failed to extract media info. Ensure the URL is valid and supported.';
         if (stderr.includes('Sign in to confirm') || stderr.includes('HTTP Error 403') || stderr.includes('bot') || stderr.includes('Login required')) {
-          errorMessage = 'The media provider blocked the request (IP ban/Bot detection). Try a different platform or host the app locally.';
-        } else if (stderr.includes('Unsupported URL')) {
+          console.log('Bot detection triggered. Falling back to Cobalt API...');
+          try {
+            let title = "Media (Bot Bypass Mode)";
+            let thumbnail = "https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=800&q=80";
+            
+            if (url.includes('youtube.com') || url.includes('youtu.be')) {
+              try {
+                const oembedRes = await fetch(`https://noembed.com/embed?url=${encodeURIComponent(url)}`);
+                const oembedData = await oembedRes.json();
+                if (oembedData.title) title = oembedData.title;
+                if (oembedData.thumbnail_url) thumbnail = oembedData.thumbnail_url;
+              } catch (e) { /* ignore */ }
+            }
+
+            return res.json({
+              title,
+              thumbnail,
+              duration: 0,
+              formats: [
+                {
+                  format_id: "cobalt_video",
+                  ext: "mp4",
+                  resolution: "Best Quality (Auto)",
+                  filesize: 0,
+                  vcodec: "h264",
+                  acodec: "aac",
+                  video_only: false,
+                  audio_only: false,
+                  combined: true,
+                  format_note: "Bypassed via external API",
+                  fps: null
+                },
+                {
+                  format_id: "cobalt_audio",
+                  ext: "mp3",
+                  resolution: "Audio Only",
+                  filesize: 0,
+                  vcodec: "none",
+                  acodec: "mp3",
+                  video_only: false,
+                  audio_only: true,
+                  combined: false,
+                  format_note: "Bypassed via external API",
+                  fps: null
+                }
+              ]
+            });
+          } catch (e) {
+            return res.status(400).json({ error: 'Bot detection blocked the request, and fallback API failed.' });
+          }
+        }
+
+        let errorMessage = 'Failed to extract media info. Ensure the URL is valid and supported.';
+        if (stderr.includes('Unsupported URL')) {
           errorMessage = 'The provided URL is not supported by the extractor.';
         } else if (stderr.includes('Video unavailable')) {
           errorMessage = 'The video is unavailable, private, or deleted.';
@@ -155,7 +206,85 @@ app.post('/api/download', async (req, res) => {
     const downloadId = uuidv4();
     activeDownloads.set(downloadId, { progress: 0, status: 'Starting' });
 
-    // Start download process in background
+    // Handle Cobalt API Fallback Downloads
+    if (format_id.startsWith('cobalt_')) {
+      res.json({ downloadId });
+      
+      const isAudio = format_id === 'cobalt_audio';
+      const ext = isAudio ? 'mp3' : 'mp4';
+      const filename = `${downloadId}.${ext}`;
+      const outputTemplate = path.join(downloadsDir, filename);
+
+      activeDownloads.set(downloadId, { progress: 10, status: 'Bypassing Bot Detection...' });
+
+      try {
+        const cobaltRes = await fetch('https://api.cobalt.tools/', {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+          },
+          body: JSON.stringify({
+            url: url,
+            isAudioOnly: isAudio
+          })
+        });
+
+        if (!cobaltRes.ok) throw new Error(`Bypass API failed with status ${cobaltRes.status}`);
+        
+        const cobaltData = await cobaltRes.json();
+        if (cobaltData.status === 'error') throw new Error(cobaltData.text || 'Unknown bypass error');
+        
+        let downloadUrl = cobaltData.url;
+        if (cobaltData.status === 'picker' && cobaltData.picker && cobaltData.picker.length > 0) {
+          downloadUrl = cobaltData.picker[0].url;
+        }
+
+        if (!downloadUrl) throw new Error('No download URL returned from bypass server');
+        
+        activeDownloads.set(downloadId, { progress: 30, status: 'Downloading from Bypass Server...' });
+
+        const fileRes = await fetch(downloadUrl);
+        if (!fileRes.ok) throw new Error('Failed to fetch media from bypass server');
+        
+        const totalSize = parseInt(fileRes.headers.get('content-length') || '0', 10);
+        let downloadedSize = 0;
+        
+        const dest = fs.createWriteStream(outputTemplate);
+        
+        if (fileRes.body) {
+          // @ts-ignore
+          const reader = fileRes.body.getReader();
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            
+            downloadedSize += value.length;
+            if (totalSize > 0) {
+              const percent = 30 + ((downloadedSize / totalSize) * 69);
+              activeDownloads.set(downloadId, { progress: percent, status: 'Downloading' });
+            }
+            dest.write(value);
+          }
+          dest.end();
+          
+          activeDownloads.set(downloadId, { 
+            progress: 100, 
+            status: 'Completed', 
+            filename: filename 
+          });
+        } else {
+          throw new Error('No response body from bypass server');
+        }
+      } catch (err: any) {
+        console.error('Cobalt fallback error:', err);
+        activeDownloads.set(downloadId, { progress: 0, status: 'Error', error: err.message || 'Bypass server failed to process this video.' });
+      }
+      return;
+    }
+
+    // Start normal yt-dlp download process in background
     const outputTemplate = path.join(downloadsDir, `${downloadId}_%(ext)s`);
     
     let formatArg = format_id;
