@@ -68,7 +68,7 @@ app.post('/api/info', async (req, res) => {
       stderr += data.toString();
     });
 
-    ytDlp.on('close', (code) => {
+    ytDlp.on('close', async (code) => {
       if (hasResponded) return;
       hasResponded = true;
       if (code !== 0) {
