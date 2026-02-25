@@ -309,7 +309,7 @@ app.post('/api/download', async (req, res) => {
       activeDownloads.set(downloadId, { progress: 10, status: 'Bypassing Bot Detection...' });
 
       try {
-        const cobaltRes = await fetch('https://api.cobalt.tools/api/json', {
+        const cobaltRes = await fetch('https://api.kektube.com/', {
           method: 'POST',
           headers: {
             'Accept': 'application/json',
