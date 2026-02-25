@@ -39,7 +39,8 @@ app.post('/api/info', async (req, res) => {
       '-J',
       '--no-colors',
       '--js-runtimes', 'node',
-      '--extractor-args', 'youtube:player_client=android,web',
+      '--extractor-args', 'youtube:player_client=ios,android,web',
+      '--force-ipv4',
       '--geo-bypass',
       '--no-warnings',
       url
@@ -166,7 +167,8 @@ app.post('/api/download', async (req, res) => {
       '--newline',
       '--no-colors',
       '--js-runtimes', 'node',
-      '--extractor-args', 'youtube:player_client=android,web',
+      '--extractor-args', 'youtube:player_client=ios,android,web',
+      '--force-ipv4',
       '--geo-bypass',
       url
     ]);
