@@ -35,7 +35,15 @@ app.post('/api/info', async (req, res) => {
   try {
     const { url } = urlSchema.parse(req.body);
 
-    const ytDlp = spawn('yt-dlp', ['-J', url]);
+    const ytDlp = spawn('yt-dlp', [
+      '-J',
+      '--no-colors',
+      '--js-runtimes', 'node',
+      '--extractor-args', 'youtube:player_client=android,web',
+      '--geo-bypass',
+      '--no-warnings',
+      url
+    ]);
 
     let hasResponded = false;
 
@@ -156,6 +164,10 @@ app.post('/api/download', async (req, res) => {
       '-f', formatArg,
       '-o', outputTemplate,
       '--newline',
+      '--no-colors',
+      '--js-runtimes', 'node',
+      '--extractor-args', 'youtube:player_client=android,web',
+      '--geo-bypass',
       url
     ]);
 
