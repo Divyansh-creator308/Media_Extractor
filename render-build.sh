@@ -9,7 +9,7 @@ echo "Building frontend..."
 npm run build
 
 echo "Downloading yt-dlp..."
-curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o yt-dlp
+curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux -o yt-dlp
 chmod a+rx yt-dlp
 
 echo "Downloading FFmpeg..."
