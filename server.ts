@@ -318,8 +318,8 @@ app.post('/api/download', async (req, res) => {
           },
           body: JSON.stringify({
             url: url,
-            isAudioOnly: isAudio,
-            vQuality: vQuality
+            downloadMode: isAudio ? 'audio' : 'auto',
+            videoQuality: vQuality === 'max' ? 'max' : vQuality
           })
         });
 
